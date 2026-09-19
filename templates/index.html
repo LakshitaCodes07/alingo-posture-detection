@@ -139,9 +139,14 @@
 
 
         let cameraStarted = false;
+        let detectionRunning = false;
 
 
         async function startCamera() {
+
+            if (cameraStarted) {
+                return;
+            }
 
             try {
 
@@ -154,6 +159,8 @@
                 video.srcObject = stream;
 
                 cameraStarted = true;
+
+                statusBox.className = "status";
 
                 statusBox.innerText =
                     "Camera started. AI detection is starting...";
@@ -174,130 +181,189 @@
         }
 
 
+        function createFrame() {
+
+            return new Promise((resolve) => {
+
+                const canvas =
+                    document.createElement("canvas");
+
+                canvas.width = 224;
+                canvas.height = 224;
+
+                const context =
+                    canvas.getContext("2d");
+
+                context.drawImage(
+                    video,
+                    0,
+                    0,
+                    224,
+                    224
+                );
+
+                canvas.toBlob(
+                    function(blob) {
+
+                        resolve(blob);
+
+                    },
+                    "image/jpeg",
+                    0.7
+                );
+
+            });
+
+        }
+
+
         async function sendFrameToAI() {
 
             if (!cameraStarted) {
                 return;
             }
 
-            if (video.videoWidth === 0 ||
-                video.videoHeight === 0) {
+            if (
+                video.videoWidth === 0 ||
+                video.videoHeight === 0
+            ) {
                 return;
             }
 
 
-            const canvas =
-                document.createElement("canvas");
+            try {
 
-            canvas.width = 224;
-            canvas.height = 224;
-
-
-            const context =
-                canvas.getContext("2d");
+                const blob =
+                    await createFrame();
 
 
-            context.drawImage(
-                video,
-                0,
-                0,
-                224,
-                224
-            );
+                const formData =
+                    new FormData();
+
+                formData.append(
+                    "image",
+                    blob,
+                    "frame.jpg"
+                );
 
 
-            canvas.toBlob(
-                async function(blob) {
-
-                    const formData =
-                        new FormData();
-
-                    formData.append(
-                        "image",
-                        blob,
-                        "frame.jpg"
+                const response =
+                    await fetch(
+                        "/predict",
+                        {
+                            method: "POST",
+                            body: formData
+                        }
                     );
 
 
-                    try {
+                if (!response.ok) {
 
-                        const response =
-                            await fetch(
-                                "/predict",
-                                {
-                                    method: "POST",
-                                    body: formData
-                                }
-                            );
+                    statusBox.className = "status bad";
 
+                    statusBox.innerText =
+                        "AI server is processing...";
 
-                        const result =
-                            await response.json();
+                    console.error(
+                        "Server error:",
+                        response.status
+                    );
 
+                    return;
 
-                        if (result.error) {
-
-                            statusBox.innerText =
-                                result.error;
-
-                            return;
-
-                        }
+                }
 
 
-                        const confidence =
-                            (
-                                result.confidence * 100
-                            ).toFixed(1);
+                const result =
+                    await response.json();
 
 
-                        if (
-                            result.posture ===
-                            "Good Sitting Posture"
-                        ) {
+                if (result.error) {
 
-                            statusBox.className =
-                                "status good";
+                    statusBox.className = "status bad";
 
-                            statusBox.innerText =
-                                "✓ Well Done! You are in Good Posture. " +
-                                confidence + "%";
+                    statusBox.innerText =
+                        result.error;
 
-                        }
+                    return;
 
-                        else {
+                }
 
-                            statusBox.className =
-                                "status bad";
 
-                            statusBox.innerText =
-                                "✗ DANGER! You are in Bad Posture. " +
-                                confidence + "%";
+                const confidence =
+                    (
+                        result.confidence * 100
+                    ).toFixed(1);
 
-                        }
 
-                    }
+                if (
+                    result.posture ===
+                    "Good Sitting Posture"
+                ) {
 
-                    catch (error) {
+                    statusBox.className =
+                        "status good";
 
-                        console.error(error);
+                    statusBox.innerText =
+                        "✓ Well Done! You are in Good Posture. " +
+                        confidence + "%";
 
-                    }
+                }
 
-                },
-                "image/jpeg",
-                0.7
-            );
+                else {
+
+                    statusBox.className =
+                        "status bad";
+
+                    statusBox.innerText =
+                        "✗ DANGER! You are in Bad Posture. " +
+                        confidence + "%";
+
+                }
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "Prediction error:",
+                    error
+                );
+
+                statusBox.className =
+                    "status bad";
+
+                statusBox.innerText =
+                    "Waiting for AI prediction...";
+
+            }
 
         }
 
 
-        function startDetection() {
+        async function startDetection() {
 
-            setInterval(
-                sendFrameToAI,
-                500
-            );
+            if (detectionRunning) {
+                return;
+            }
+
+            detectionRunning = true;
+
+
+            while (detectionRunning) {
+
+                await sendFrameToAI();
+
+
+                // Wait 3 seconds before sending
+                // the next image.
+
+                await new Promise(
+                    resolve =>
+                        setTimeout(resolve, 3000)
+                );
+
+            }
 
         }
 
