@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>ALINGO - Body Posture Correcter</title>
+
+    <style>
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f7fb;
+            text-align: center;
+        }
+
+        .header {
+            background: #1f2937;
+            color: white;
+            padding: 20px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 36px;
+        }
+
+        .header p {
+            font-size: 18px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 30px auto;
+            padding: 20px;
+        }
+
+        .camera-box {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        #camera {
+            width: 100%;
+            max-width: 800px;
+            min-height: 400px;
+            background: black;
+            border-radius: 10px;
+            object-fit: cover;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .good {
+            color: green;
+        }
+
+        .bad {
+            color: red;
+        }
+
+        button {
+            margin-top: 20px;
+            padding: 12px 25px;
+            font-size: 18px;
+            border: none;
+            border-radius: 8px;
+            background: #1f2937;
+            color: white;
+            cursor: pointer;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+    <div class="header">
+
+        <h1>ALINGO</h1>
+
+        <p>Body Posture Correcter</p>
+
+    </div>
+
+
+    <div class="container">
+
+        <div class="camera-box">
+
+            <h2>AI Posture Detection</h2>
+
+            <video
+                id="camera"
+                autoplay
+                playsinline>
+            </video>
+
+            <br>
+
+            <button onclick="startCamera()">
+                Start Camera
+            </button>
+
+            <div
+                id="status"
+                class="status">
+
+                Camera is waiting...
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <script>
+
+        const video =
+            document.getElementById("camera");
+
+        const statusBox =
+            document.getElementById("status");
+
+
+        let cameraStarted = false;
+
+
+        async function startCamera() {
+
+            try {
+
+                const stream =
+                    await navigator.mediaDevices.getUserMedia({
+                        video: true,
+                        audio: false
+                    });
+
+                video.srcObject = stream;
+
+                cameraStarted = true;
+
+                statusBox.innerText =
+                    "Camera started. AI detection is starting...";
+
+                startDetection();
+
+            }
+
+            catch (error) {
+
+                console.error(error);
+
+                statusBox.innerText =
+                    "Camera could not be started.";
+
+            }
+
+        }
+
+
+        async function sendFrameToAI() {
+
+            if (!cameraStarted) {
+                return;
+            }
+
+            if (video.videoWidth === 0 ||
+                video.videoHeight === 0) {
+                return;
+            }
+
+
+            const canvas =
+                document.createElement("canvas");
+
+            canvas.width = 224;
+            canvas.height = 224;
+
+
+            const context =
+                canvas.getContext("2d");
+
+
+            context.drawImage(
+                video,
+                0,
+                0,
+                224,
+                224
+            );
+
+
+            canvas.toBlob(
+                async function(blob) {
+
+                    const formData =
+                        new FormData();
+
+                    formData.append(
+                        "image",
+                        blob,
+                        "frame.jpg"
+                    );
+
+
+                    try {
+
+                        const response =
+                            await fetch(
+                                "/predict",
+                                {
+                                    method: "POST",
+                                    body: formData
+                                }
+                            );
+
+
+                        const result =
+                            await response.json();
+
+
+                        if (result.error) {
+
+                            statusBox.innerText =
+                                result.error;
+
+                            return;
+
+                        }
+
+
+                        const confidence =
+                            (
+                                result.confidence * 100
+                            ).toFixed(1);
+
+
+                        if (
+                            result.posture ===
+                            "Good Sitting Posture"
+                        ) {
+
+                            statusBox.className =
+                                "status good";
+
+                            statusBox.innerText =
+                                "✓ Well Done! You are in Good Posture. " +
+                                confidence + "%";
+
+                        }
+
+                        else {
+
+                            statusBox.className =
+                                "status bad";
+
+                            statusBox.innerText =
+                                "✗ DANGER! You are in Bad Posture. " +
+                                confidence + "%";
+
+                        }
+
+                    }
+
+                    catch (error) {
+
+                        console.error(error);
+
+                    }
+
+                },
+                "image/jpeg",
+                0.7
+            );
+
+        }
+
+
+        function startDetection() {
+
+            setInterval(
+                sendFrameToAI,
+                1500
+            );
+
+        }
+
+    </script>
+
+</body>
+
+</html>
