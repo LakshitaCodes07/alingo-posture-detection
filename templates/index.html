@@ -72,6 +72,14 @@
             color: red;
         }
 
+        .warning {
+            color: #d97706;
+        }
+
+        .info {
+            color: #374151;
+        }
+
         button {
             margin-top: 20px;
             padding: 12px 25px;
@@ -83,9 +91,26 @@
             cursor: pointer;
         }
 
+        button:hover {
+            background: #111827;
+        }
+
+        #confidence {
+            margin-top: 10px;
+            font-size: 18px;
+            color: #4b5563;
+        }
+
+        #timer {
+            margin-top: 8px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
     </style>
 
 </head>
+
 
 <body>
 
@@ -118,11 +143,15 @@
 
             <div
                 id="status"
-                class="status">
+                class="status info">
 
                 Camera is waiting...
 
             </div>
+
+            <div id="confidence"></div>
+
+            <div id="timer"></div>
 
         </div>
 
@@ -137,10 +166,40 @@
         const statusBox =
             document.getElementById("status");
 
+        const confidenceBox =
+            document.getElementById("confidence");
+
+        const timerBox =
+            document.getElementById("timer");
+
 
         let cameraStarted = false;
         let detectionRunning = false;
 
+
+        // ----------------------------------------
+        // Bad posture timer settings
+        // ----------------------------------------
+
+        const BAD_POSTURE_LIMIT = 10;
+
+        let badPostureStartTime = null;
+
+
+        // ----------------------------------------
+        // Recovery settings
+        // ----------------------------------------
+
+        const GOOD_RECOVERY_FRAMES = 2;
+
+        let goodRecoveryCounter = 0;
+
+        let stablePosture = "Good Sitting Posture";
+
+
+        // ----------------------------------------
+        // Start camera
+        // ----------------------------------------
 
         async function startCamera() {
 
@@ -160,7 +219,8 @@
 
                 cameraStarted = true;
 
-                statusBox.className = "status";
+                statusBox.className =
+                    "status info";
 
                 statusBox.innerText =
                     "Camera started. AI detection is starting...";
@@ -173,6 +233,9 @@
 
                 console.error(error);
 
+                statusBox.className =
+                    "status bad";
+
                 statusBox.innerText =
                     "Camera could not be started.";
 
@@ -180,6 +243,10 @@
 
         }
 
+
+        // ----------------------------------------
+        // Capture webcam frame
+        // ----------------------------------------
 
         function createFrame() {
 
@@ -216,6 +283,10 @@
 
         }
 
+
+        // ----------------------------------------
+        // Send frame to Flask AI
+        // ----------------------------------------
 
         async function sendFrameToAI() {
 
@@ -259,7 +330,8 @@
 
                 if (!response.ok) {
 
-                    statusBox.className = "status bad";
+                    statusBox.className =
+                        "status bad";
 
                     statusBox.innerText =
                         "AI server is processing...";
@@ -280,7 +352,8 @@
 
                 if (result.error) {
 
-                    statusBox.className = "status bad";
+                    statusBox.className =
+                        "status bad";
 
                     statusBox.innerText =
                         result.error;
@@ -296,32 +369,116 @@
                     ).toFixed(1);
 
 
+                confidenceBox.innerText =
+                    "AI Confidence: " +
+                    confidence +
+                    "%";
+
+
+                // --------------------------------
+                // BAD POSTURE
+                // --------------------------------
+
                 if (
                     result.posture ===
-                    "Good Sitting Posture"
+                    "Bad Sitting Posture"
                 ) {
 
-                    statusBox.className =
-                        "status good";
+                    goodRecoveryCounter = 0;
 
-                    statusBox.innerText =
-                        "✓ Well Done! You are in Good Posture. " +
-                        confidence + "%";
+
+                    if (
+                        badPostureStartTime === null
+                    ) {
+
+                        badPostureStartTime =
+                            Date.now();
+
+                    }
+
+
+                    stablePosture =
+                        "Bad Sitting Posture";
+
+
+                    const badDuration =
+                        (
+                            Date.now() -
+                            badPostureStartTime
+                        ) / 1000;
+
+
+                    timerBox.innerText =
+                        "Bad posture duration: " +
+                        badDuration.toFixed(1) +
+                        " seconds";
+
+
+                    if (
+                        badDuration >=
+                        BAD_POSTURE_LIMIT
+                    ) {
+
+                        statusBox.className =
+                            "status warning";
+
+                        statusBox.innerText =
+                            "⚠ You are in bad posture for a long time.";
+
+                    }
+
+                    else {
+
+                        statusBox.className =
+                            "status bad";
+
+                        statusBox.innerText =
+                            "✗ DANGER! You are in Bad Posture.";
+
+                    }
 
                 }
 
+
+                // --------------------------------
+                // GOOD POSTURE
+                // --------------------------------
+
                 else {
 
-                    statusBox.className =
-                        "status bad";
+                    goodRecoveryCounter++;
 
-                    statusBox.innerText =
-                        "✗ DANGER! You are in Bad Posture. " +
-                        confidence + "%";
+
+                    if (
+                        goodRecoveryCounter >=
+                        GOOD_RECOVERY_FRAMES
+                    ) {
+
+                        stablePosture =
+                            "Good Sitting Posture";
+
+                        badPostureStartTime =
+                            null;
+
+                        goodRecoveryCounter =
+                            0;
+
+
+                        statusBox.className =
+                            "status good";
+
+                        statusBox.innerText =
+                            "✓ Well Done! You are in Good Posture.";
+
+                        timerBox.innerText =
+                            "";
+
+                    }
 
                 }
 
             }
+
 
             catch (error) {
 
@@ -341,6 +498,10 @@
         }
 
 
+        // ----------------------------------------
+        // Continuous detection
+        // ----------------------------------------
+
         async function startDetection() {
 
             if (detectionRunning) {
@@ -355,12 +516,15 @@
                 await sendFrameToAI();
 
 
-                // Wait 3 seconds before sending
-                // the next image.
+                // Wait 3 seconds before
+                // the next AI prediction.
 
                 await new Promise(
                     resolve =>
-                        setTimeout(resolve, 3000)
+                        setTimeout(
+                            resolve,
+                            3000
+                        )
                 );
 
             }
