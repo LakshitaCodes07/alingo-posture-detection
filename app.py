@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 from tensorflow import keras
 import cv2
 import numpy as np
+import os
 
 
 # =========================
@@ -56,7 +57,7 @@ class LightweightSSMLayer(keras.layers.Layer):
 
 
 # =========================
-# FLASK
+# FLASK APPLICATION
 # =========================
 
 app = Flask(__name__)
@@ -66,7 +67,15 @@ app = Flask(__name__)
 # LOAD MODEL
 # =========================
 
-model_path = r"C:\Users\sonid\posture_website\baseline_mamba_model.keras"
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
+model_path = os.path.join(
+    BASE_DIR,
+    "baseline_mamba_model.keras"
+)
+
 
 model = keras.models.load_model(
     model_path,
@@ -75,6 +84,7 @@ model = keras.models.load_model(
     },
     compile=False
 )
+
 
 print("Posture model loaded successfully!")
 
@@ -127,7 +137,9 @@ def predict_posture(frame):
         prediction[0][predicted_class]
     )
 
-    posture = class_names[predicted_class]
+    posture = class_names[
+        predicted_class
+    ]
 
     return posture, confidence
 
@@ -139,14 +151,19 @@ def predict_posture(frame):
 @app.route("/")
 def home():
 
-    return render_template("index.html")
+    return render_template(
+        "index.html"
+    )
 
 
 # =========================
 # AI PREDICTION API
 # =========================
 
-@app.route("/predict", methods=["POST"])
+@app.route(
+    "/predict",
+    methods=["POST"]
+)
 def predict():
 
     if "image" not in request.files:
@@ -175,7 +192,9 @@ def predict():
             "error": "Could not read image"
         }), 400
 
-    posture, confidence = predict_posture(frame)
+    posture, confidence = predict_posture(
+        frame
+    )
 
     return jsonify({
         "posture": posture,
@@ -190,7 +209,12 @@ def predict():
 if __name__ == "__main__":
 
     app.run(
-        host="127.0.0.1",
-        port=5000,
+        host="0.0.0.0",
+        port=int(
+            os.environ.get(
+                "PORT",
+                5000
+            )
+        ),
         debug=False
     )
