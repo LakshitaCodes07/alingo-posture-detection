@@ -5,14 +5,15 @@ import numpy as np
 import os
 
 
-# =========================
-# MAMBA LAYER
-# =========================
+# ============================================================
+# CUSTOM MAMBA-STYLE LAYER
+# ============================================================
 
 class LightweightSSMLayer(keras.layers.Layer):
 
     def __init__(self, dim, state_dim, **kwargs):
         super().__init__(**kwargs)
+
         self.dim = dim
         self.state_dim = state_dim
 
@@ -51,47 +52,53 @@ class LightweightSSMLayer(keras.layers.Layer):
                 keras.ops.matmul(state, self.A) + current
             )
 
-            outputs.append(self.C(state))
+            outputs.append(
+                self.C(state)
+            )
 
-        return keras.ops.stack(outputs, axis=1)
+        return keras.ops.stack(
+            outputs,
+            axis=1
+        )
 
 
-# =========================
+# ============================================================
 # FLASK APPLICATION
-# =========================
+# ============================================================
 
 app = Flask(__name__)
 
 
-# =========================
+# ============================================================
 # LOAD MODEL
-# =========================
+# ============================================================
 
 BASE_DIR = os.path.dirname(
     os.path.abspath(__file__)
 )
 
-model_path = os.path.join(
+MODEL_PATH = os.path.join(
     BASE_DIR,
     "baseline_mamba_model.keras"
 )
 
 
+print("Loading posture model...")
+
 model = keras.models.load_model(
-    model_path,
+    MODEL_PATH,
     custom_objects={
         "LightweightSSMLayer": LightweightSSMLayer
     },
     compile=False
 )
 
-
 print("Posture model loaded successfully!")
 
 
-# =========================
+# ============================================================
 # CLASS NAMES
-# =========================
+# ============================================================
 
 class_names = {
     0: "Bad Sitting Posture",
@@ -99,44 +106,53 @@ class_names = {
 }
 
 
-# =========================
-# PREDICTION FUNCTION
-# =========================
+# ============================================================
+# POSTURE PREDICTION FUNCTION
+# ============================================================
 
 def predict_posture(frame):
 
+    # Convert BGR → RGB
     frame_rgb = cv2.cvtColor(
         frame,
         cv2.COLOR_BGR2RGB
     )
 
+    # Resize to model input size
     frame_resized = cv2.resize(
         frame_rgb,
         (224, 224)
     )
 
+    # Normalize
     frame_input = (
-        frame_resized.astype("float32") / 255.0
+        frame_resized.astype("float32")
+        / 255.0
     )
 
+    # Add batch dimension
     frame_input = np.expand_dims(
         frame_input,
         axis=0
     )
 
+    # Run model
     prediction = model.predict(
         frame_input,
         verbose=0
     )
 
+    # Get predicted class
     predicted_class = int(
         np.argmax(prediction[0])
     )
 
+    # Get confidence
     confidence = float(
         prediction[0][predicted_class]
     )
 
+    # Get class name
     posture = class_names[
         predicted_class
     ]
@@ -144,9 +160,9 @@ def predict_posture(frame):
     return posture, confidence
 
 
-# =========================
+# ============================================================
 # HOME PAGE
-# =========================
+# ============================================================
 
 @app.route("/")
 def home():
@@ -156,9 +172,22 @@ def home():
     )
 
 
-# =========================
-# AI PREDICTION API
-# =========================
+# ============================================================
+# SERVER TEST
+# ============================================================
+
+@app.route("/test")
+def test():
+
+    return jsonify({
+        "status": "working",
+        "model_loaded": model is not None
+    })
+
+
+# ============================================================
+# POSTURE PREDICTION API
+# ============================================================
 
 @app.route(
     "/predict",
@@ -166,55 +195,89 @@ def home():
 )
 def predict():
 
-    if "image" not in request.files:
+    try:
+
+        # Check image
+        if "image" not in request.files:
+
+            return jsonify({
+                "error": "No image received"
+            }), 400
+
+
+        # Read uploaded image
+        image_file = request.files["image"]
+
+        image_bytes = image_file.read()
+
+
+        # Convert bytes → NumPy array
+        image_array = np.frombuffer(
+            image_bytes,
+            dtype=np.uint8
+        )
+
+
+        # Decode image
+        frame = cv2.imdecode(
+            image_array,
+            cv2.IMREAD_COLOR
+        )
+
+
+        # Check image
+        if frame is None:
+
+            return jsonify({
+                "error": "Could not read image"
+            }), 400
+
+
+        # Run posture prediction
+        posture, confidence = predict_posture(
+            frame
+        )
+
+
+        # Return result
+        return jsonify({
+
+            "posture": posture,
+
+            "confidence": confidence
+
+        })
+
+
+    except Exception as error:
+
+        print(
+            "Prediction error:",
+            repr(error)
+        )
 
         return jsonify({
-            "error": "No image received"
-        }), 400
 
-    image_file = request.files["image"]
+            "error": str(error)
 
-    image_bytes = image_file.read()
-
-    image_array = np.frombuffer(
-        image_bytes,
-        dtype=np.uint8
-    )
-
-    frame = cv2.imdecode(
-        image_array,
-        cv2.IMREAD_COLOR
-    )
-
-    if frame is None:
-
-        return jsonify({
-            "error": "Could not read image"
-        }), 400
-
-    posture, confidence = predict_posture(
-        frame
-    )
-
-    return jsonify({
-        "posture": posture,
-        "confidence": confidence
-    })
+        }), 500
 
 
-# =========================
+# ============================================================
 # START SERVER
-# =========================
+# ============================================================
 
 if __name__ == "__main__":
 
+    port = int(
+        os.environ.get(
+            "PORT",
+            5000
+        )
+    )
+
     app.run(
         host="0.0.0.0",
-        port=int(
-            os.environ.get(
-                "PORT",
-                5000
-            )
-        ),
+        port=port,
         debug=False
     )
